@@ -131,7 +131,7 @@ public partial class MainWindow : Window
         var dialog = new OpenFileDialog
         {
             Title = "Открыть изображение",
-            Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff|All files|*.*"
+            Filter = "Images|*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp|All files|*.*"
         };
 
         if (dialog.ShowDialog(this) == true)
@@ -252,7 +252,7 @@ public partial class MainWindow : Window
         {
             Title = "Сохранить результат",
             FileName = initialName,
-            Filter = "PNG image|*.png|JPEG image|*.jpg|Bitmap|*.bmp|TIFF image|*.tif"
+            Filter = "PNG image|*.png|JPEG image|*.jpg|Bitmap|*.bmp|TIFF image|*.tif|WebP image|*.webp"
         };
 
         if (dialog.ShowDialog(this) != true)

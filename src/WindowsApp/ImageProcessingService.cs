@@ -1,8 +1,10 @@
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using SkiaSharp;
 
 namespace WindowsApp;
 
@@ -10,10 +12,16 @@ public static class ImageProcessingService
 {
     private const int AnalysisMaxDimension = 1400;
     private const int MaxBoundaryPoints = 14000;
+    private const int WebpQuality = 90;
 
     public static BitmapSource LoadBitmap(string path)
     {
         using var stream = File.OpenRead(path);
+        if (IsWebpPath(path))
+        {
+            return LoadWebpBitmap(stream);
+        }
+
         var decoder = BitmapDecoder.Create(
             stream,
             BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile,
@@ -137,6 +145,12 @@ public static class ImageProcessingService
 
     public static void SaveBitmap(BitmapSource bitmap, string path)
     {
+        if (IsWebpPath(path))
+        {
+            SaveWebpBitmap(bitmap, path);
+            return;
+        }
+
         BitmapEncoder encoder = Path.GetExtension(path).ToLowerInvariant() switch
         {
             ".jpg" or ".jpeg" => new JpegBitmapEncoder { QualityLevel = 95 },
@@ -148,6 +162,72 @@ public static class ImageProcessingService
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using var stream = File.Create(path);
         encoder.Save(stream);
+    }
+
+    private static BitmapSource LoadWebpBitmap(Stream stream)
+    {
+        using var image = SKBitmap.Decode(stream);
+        if (image is null)
+        {
+            throw new InvalidDataException("Invalid WebP image.");
+        }
+
+        var stride = image.Width * 4;
+        var pixels = new byte[stride * image.Height];
+        for (var y = 0; y < image.Height; y++)
+        {
+            var row = y * stride;
+            for (var x = 0; x < image.Width; x++)
+            {
+                var color = image.GetPixel(x, y);
+                var offset = row + x * 4;
+                pixels[offset] = color.Blue;
+                pixels[offset + 1] = color.Green;
+                pixels[offset + 2] = color.Red;
+                pixels[offset + 3] = color.Alpha;
+            }
+        }
+
+        var bitmap = BitmapSource.Create(
+            image.Width,
+            image.Height,
+            96,
+            96,
+            PixelFormats.Bgra32,
+            null,
+            pixels,
+            stride);
+        bitmap.Freeze();
+        return bitmap;
+    }
+
+    private static void SaveWebpBitmap(BitmapSource bitmap, string path)
+    {
+        BitmapSource source = bitmap.Format == PixelFormats.Bgra32
+            ? bitmap
+            : new FormatConvertedBitmap(bitmap, PixelFormats.Bgra32, null, 0);
+        var stride = source.PixelWidth * 4;
+        var pixels = new byte[stride * source.PixelHeight];
+        source.CopyPixels(pixels, stride, 0);
+
+        var info = new SKImageInfo(source.PixelWidth, source.PixelHeight, SKColorType.Bgra8888, SKAlphaType.Unpremul);
+        using var bitmapImage = new SKBitmap(info);
+        Marshal.Copy(pixels, 0, bitmapImage.GetPixels(), pixels.Length);
+
+        using var image = SKImage.FromBitmap(bitmapImage);
+        using var data = image.Encode(SKEncodedImageFormat.Webp, WebpQuality);
+        if (data is null)
+        {
+            throw new InvalidOperationException("Could not encode WebP image.");
+        }
+
+        using var stream = File.Create(path);
+        data.SaveTo(stream);
+    }
+
+    private static bool IsWebpPath(string path)
+    {
+        return string.Equals(Path.GetExtension(path), ".webp", StringComparison.OrdinalIgnoreCase);
     }
 
     public static string FormatAngle(double angle)
