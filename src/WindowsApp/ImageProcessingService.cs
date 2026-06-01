@@ -8,12 +8,32 @@ using SkiaSharp;
 
 namespace WindowsApp;
 
+/// <summary>
+/// Содержит всю работу с изображениями: загрузку, поиск контура, построение предпросмотра,
+/// поворот, обрезку и сохранение результата.
+/// </summary>
 public static class ImageProcessingService
 {
+    /// <summary>
+    /// Максимальная сторона уменьшенной копии, на которой выполняется анализ.
+    /// Это ускоряет обработку больших сканов.
+    /// </summary>
     private const int AnalysisMaxDimension = 1400;
+
+    /// <summary>
+    /// Ограничение количества точек контура, чтобы подсветка не перегружала интерфейс.
+    /// </summary>
     private const int MaxBoundaryPoints = 14000;
+
+    /// <summary>
+    /// Качество сохранения WebP-изображений.
+    /// </summary>
     private const int WebpQuality = 90;
 
+    /// <summary>
+    /// Загружает изображение из файла и приводит его к формату BGRA32,
+    /// с которым дальше работает анализатор.
+    /// </summary>
     public static BitmapSource LoadBitmap(string path)
     {
         using var stream = File.OpenRead(path);
@@ -37,6 +57,10 @@ public static class ImageProcessingService
         return source;
     }
 
+    /// <summary>
+    /// Анализирует изображение: строит маску переднего плана, находит основной объект
+    /// и вычисляет его границы, центр, угол наклона и точки контура.
+    /// </summary>
     public static ImageAnalysisResult Analyze(BitmapSource source, int sensitivity)
     {
         var analysisScale = Math.Min(1.0, (double)AnalysisMaxDimension / Math.Max(source.PixelWidth, source.PixelHeight));
@@ -83,6 +107,10 @@ public static class ImageProcessingService
         };
     }
 
+    /// <summary>
+    /// Строит уменьшенное изображение для предпросмотра с наложением контура,
+    /// направляющих линий, центра и рамки будущей обрезки.
+    /// </summary>
     public static BitmapSource RenderPreview(BitmapSource source, ImageAnalysisResult? analysis, ImageRenderSettings settings)
     {
         var layout = BuildLayout(source, analysis, settings);
@@ -111,6 +139,10 @@ public static class ImageProcessingService
         return bitmap;
     }
 
+    /// <summary>
+    /// Строит итоговое изображение для сохранения: применяет поворот, центровку и автообрезку.
+    /// В отличие от предпросмотра, служебные линии в результат не рисуются.
+    /// </summary>
     public static BitmapSource RenderResult(BitmapSource source, ImageAnalysisResult? analysis, ImageRenderSettings settings)
     {
         var layout = BuildLayout(source, analysis, settings);
@@ -143,6 +175,9 @@ public static class ImageProcessingService
         return bitmap;
     }
 
+    /// <summary>
+    /// Сохраняет BitmapSource в файл. Формат выбирается по расширению имени файла.
+    /// </summary>
     public static void SaveBitmap(BitmapSource bitmap, string path)
     {
         if (IsWebpPath(path))
@@ -164,6 +199,9 @@ public static class ImageProcessingService
         encoder.Save(stream);
     }
 
+    /// <summary>
+    /// Загружает WebP через SkiaSharp, потому что стандартные WPF-кодеки не гарантируют поддержку WebP.
+    /// </summary>
     private static BitmapSource LoadWebpBitmap(Stream stream)
     {
         using var image = SKBitmap.Decode(stream);
@@ -201,6 +239,9 @@ public static class ImageProcessingService
         return bitmap;
     }
 
+    /// <summary>
+    /// Кодирует изображение в WebP через SkiaSharp.
+    /// </summary>
     private static void SaveWebpBitmap(BitmapSource bitmap, string path)
     {
         BitmapSource source = bitmap.Format == PixelFormats.Bgra32
@@ -225,16 +266,25 @@ public static class ImageProcessingService
         data.SaveTo(stream);
     }
 
+    /// <summary>
+    /// Проверяет, нужно ли использовать отдельную ветку обработки WebP.
+    /// </summary>
     private static bool IsWebpPath(string path)
     {
         return string.Equals(Path.GetExtension(path), ".webp", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Форматирует угол без лишних нулей, чтобы одинаково показывать его в интерфейсе.
+    /// </summary>
     public static string FormatAngle(double angle)
     {
         return angle.ToString("0.###", CultureInfo.InvariantCulture);
     }
 
+    /// <summary>
+    /// Создает уменьшенную копию изображения для быстрого анализа.
+    /// </summary>
     private static BitmapSource CreateScaledBitmap(BitmapSource source, double scale)
     {
         if (scale >= 0.999)
@@ -247,6 +297,10 @@ public static class ImageProcessingService
         return scaled;
     }
 
+    /// <summary>
+    /// Оценивает цвет и шум фона по краям изображения.
+    /// Это позволяет отделить скан или текст от однотонного фона планшета/сканера.
+    /// </summary>
     private static BackgroundColor EstimateBackground(PixelBuffer buffer)
     {
         var strip = Math.Max(2, Math.Min(buffer.Width, buffer.Height) / 35);
@@ -288,6 +342,9 @@ public static class ImageProcessingService
         return new BackgroundColor(red, green, blue, luminance, mean, Math.Sqrt(variance));
     }
 
+    /// <summary>
+    /// Строит бинарную маску: true означает пиксель, достаточно отличающийся от фона.
+    /// </summary>
     private static bool[] BuildForegroundMask(PixelBuffer buffer, BackgroundColor background, int sensitivity)
     {
         sensitivity = Math.Clamp(sensitivity, 5, 95);
@@ -315,6 +372,9 @@ public static class ImageProcessingService
         return mask;
     }
 
+    /// <summary>
+    /// Расширяет области маски на один пиксель во все стороны, чтобы разорванные фрагменты лучше соединялись.
+    /// </summary>
     private static void Dilate(bool[] mask, int width, int height)
     {
         var source = (bool[])mask.Clone();
@@ -343,6 +403,9 @@ public static class ImageProcessingService
         }
     }
 
+    /// <summary>
+    /// Закрывает маленькие разрывы в маске, если вокруг пикселя достаточно соседей переднего плана.
+    /// </summary>
     private static void FillSmallGaps(bool[] mask, int width, int height)
     {
         var source = (bool[])mask.Clone();
@@ -372,6 +435,10 @@ public static class ImageProcessingService
         }
     }
 
+    /// <summary>
+    /// Находит связные компоненты маски и выбирает главный регион.
+    /// Для текста регион собирается из нескольких близких компонентов, чтобы не выбирать только одну строку.
+    /// </summary>
     private static ComponentResult? FindMainComponent(bool[] mask, int width, int height)
     {
         var labels = new int[mask.Length];
@@ -468,6 +535,10 @@ public static class ImageProcessingService
         return new ComponentResult(regionLabels, regionStats);
     }
 
+    /// <summary>
+    /// Расширяет стартовый компонент соседними компонентами, которые выглядят как части того же объекта:
+    /// строки текста, слова или соседние фрагменты скана.
+    /// </summary>
     private static HashSet<int> SelectMainRegion(ComponentStats seed, IReadOnlyList<ComponentStats> components, int width, int height)
     {
         var selected = new HashSet<int> { seed.Label };
@@ -501,6 +572,9 @@ public static class ImageProcessingService
         return selected;
     }
 
+    /// <summary>
+    /// Решает, можно ли присоединить компонент к текущему региону по расстоянию и перекрытию проекций.
+    /// </summary>
     private static bool ShouldJoinRegion(RegionBounds bounds, ComponentStats component, ComponentStats seed, int width, int height)
     {
         var horizontalGap = AxisGap(bounds.MinX, bounds.MaxX, component.MinX, component.MaxX);
@@ -528,6 +602,10 @@ public static class ImageProcessingService
         return verticalGap <= verticalLimit && horizontalGap <= horizontalLimit;
     }
 
+    /// <summary>
+    /// Возвращает расстояние между двумя отрезками на одной оси.
+    /// Если отрезки пересекаются, расстояние равно нулю.
+    /// </summary>
     private static int AxisGap(int firstMin, int firstMax, int secondMin, int secondMax)
     {
         if (firstMax < secondMin)
@@ -543,11 +621,17 @@ public static class ImageProcessingService
         return 0;
     }
 
+    /// <summary>
+    /// Возвращает длину пересечения двух отрезков на одной оси.
+    /// </summary>
     private static int AxisOverlap(int firstMin, int firstMax, int secondMin, int secondMax)
     {
         return Math.Max(0, Math.Min(firstMax, secondMax) - Math.Max(firstMin, secondMin) + 1);
     }
 
+    /// <summary>
+    /// Выбирает точки границы найденного компонента и масштабирует их обратно к исходному изображению.
+    /// </summary>
     private static IReadOnlyList<Point> BuildBoundaryPoints(int[] labels, int label, int width, int height, double analysisScale)
     {
         var count = 0;
@@ -597,6 +681,9 @@ public static class ImageProcessingService
         return points;
     }
 
+    /// <summary>
+    /// Проверяет, находится ли пиксель компонента на внешней границе.
+    /// </summary>
     private static bool IsBoundary(int[] labels, int label, int index, int width)
     {
         return labels[index - 1] != label ||
@@ -605,6 +692,9 @@ public static class ImageProcessingService
                labels[index + width] != label;
     }
 
+    /// <summary>
+    /// Строит ориентированный прямоугольник вокруг компонента по его главному углу.
+    /// </summary>
     private static IReadOnlyList<Point> BuildOrientedBox(
         int[] labels,
         ComponentStats stats,
@@ -667,6 +757,9 @@ public static class ImageProcessingService
         }
     }
 
+    /// <summary>
+    /// Рисует поверх предпросмотра контур, направляющие, диагонали, центр и рамку обрезки.
+    /// </summary>
     private static void DrawAnalysisOverlay(
         DrawingContext context,
         ImageAnalysisResult analysis,
@@ -735,6 +828,9 @@ public static class ImageProcessingService
         }
     }
 
+    /// <summary>
+    /// Вычисляет холст и матрицу преобразования изображения после поворота и опциональной центровки.
+    /// </summary>
     private static TransformLayout BuildLayout(BitmapSource source, ImageAnalysisResult? analysis, ImageRenderSettings settings)
     {
         var rotated = AffineMap.Rotation(settings.RotationDegrees, source.PixelWidth / 2.0, source.PixelHeight / 2.0);
@@ -762,6 +858,9 @@ public static class ImageProcessingService
         return new TransformLayout(width, height, map, settings.RotationDegrees);
     }
 
+    /// <summary>
+    /// Вычисляет прямоугольник автообрезки по трансформированным точкам найденного контура.
+    /// </summary>
     private static Rect GetCropRect(ImageAnalysisResult analysis, TransformLayout layout, int margin)
     {
         var points = analysis.BoundaryPoints.Count > 0
@@ -783,6 +882,9 @@ public static class ImageProcessingService
         return rect;
     }
 
+    /// <summary>
+    /// Возвращает пустой результат, если на изображении не удалось найти значимый контур.
+    /// </summary>
     private static ImageAnalysisResult EmptyResult(BitmapSource source)
     {
         return new ImageAnalysisResult
@@ -799,6 +901,10 @@ public static class ImageProcessingService
         };
     }
 
+    /// <summary>
+    /// Приводит угол найденной стороны к диапазону -45..45 градусов,
+    /// потому что для выравнивания важен наклон ближайшей горизонтали/вертикали.
+    /// </summary>
     private static double NormalizeEdgeAngle(double angle)
     {
         while (angle <= -45)
@@ -814,11 +920,17 @@ public static class ImageProcessingService
         return angle;
     }
 
+    /// <summary>
+    /// Считает яркость RGB-пикселя по стандартным весам каналов.
+    /// </summary>
     private static double Luminance(double r, double g, double b)
     {
         return r * 0.299 + g * 0.587 + b * 0.114;
     }
 
+    /// <summary>
+    /// Считает взвешенное цветовое отличие пикселя от оцененного цвета фона.
+    /// </summary>
     private static double Difference(double r, double g, double b, double backgroundR, double backgroundG, double backgroundB)
     {
         var dr = r - backgroundR;
@@ -827,6 +939,9 @@ public static class ImageProcessingService
         return Math.Sqrt(dr * dr * 0.299 + dg * dg * 0.587 + db * db * 0.114);
     }
 
+    /// <summary>
+    /// Возвращает медиану массива байтов; используется для устойчивой оценки цвета фона.
+    /// </summary>
     private static byte Median(byte[] values)
     {
         if (values.Length == 0)
@@ -838,20 +953,44 @@ public static class ImageProcessingService
         return values[values.Length / 2];
     }
 
+    /// <summary>
+    /// Описание оцененного фона: цвет, яркость и уровень шума по краям изображения.
+    /// </summary>
     private readonly record struct BackgroundColor(byte R, byte G, byte B, double Luminance, double NoiseMean, double NoiseStdDev);
 
+    /// <summary>
+    /// RGB-сэмпл одного пикселя, взятого из изображения.
+    /// </summary>
     private readonly record struct ColorSample(byte R, byte G, byte B);
 
+    /// <summary>
+    /// Упрощенный доступ к пикселям BitmapSource в формате BGRA32.
+    /// </summary>
     private sealed class PixelBuffer
     {
+        /// <summary>
+        /// Ширина буфера в пикселях.
+        /// </summary>
         public required int Width { get; init; }
 
+        /// <summary>
+        /// Высота буфера в пикселях.
+        /// </summary>
         public required int Height { get; init; }
 
+        /// <summary>
+        /// Количество байтов в одной строке изображения.
+        /// </summary>
         public required int Stride { get; init; }
 
+        /// <summary>
+        /// Сырые байты изображения в порядке каналов BGRA.
+        /// </summary>
         public required byte[] Pixels { get; init; }
 
+        /// <summary>
+        /// Создает пиксельный буфер из BitmapSource и при необходимости конвертирует формат.
+        /// </summary>
         public static PixelBuffer FromBitmap(BitmapSource bitmap)
         {
             BitmapSource source = bitmap.Format == PixelFormats.Bgra32
@@ -869,6 +1008,9 @@ public static class ImageProcessingService
             };
         }
 
+        /// <summary>
+        /// Возвращает RGB-сэмпл пикселя с защитой координат от выхода за границы.
+        /// </summary>
         public ColorSample GetSample(int x, int y)
         {
             x = Math.Clamp(x, 0, Width - 1);
@@ -878,31 +1020,67 @@ public static class ImageProcessingService
         }
     }
 
+    /// <summary>
+    /// Связка карты меток и статистики выбранного компонента.
+    /// </summary>
     private sealed record ComponentResult(int[] Labels, ComponentStats Stats);
 
+    /// <summary>
+    /// Накопленная статистика связного компонента: площадь, границы, центр масс и главный угол.
+    /// </summary>
     private sealed class ComponentStats
     {
+        /// <summary>
+        /// Создает статистику для компонента с указанной числовой меткой.
+        /// </summary>
         public ComponentStats(int label)
         {
             Label = label;
         }
 
+        /// <summary>
+        /// Числовая метка компонента в карте связных областей.
+        /// </summary>
         public int Label { get; }
 
+        /// <summary>
+        /// Количество пикселей в компоненте.
+        /// </summary>
         public int Area { get; private set; }
 
+        /// <summary>
+        /// Минимальная координата X компонента.
+        /// </summary>
         public int MinX { get; private set; } = int.MaxValue;
 
+        /// <summary>
+        /// Максимальная координата X компонента.
+        /// </summary>
         public int MaxX { get; private set; } = int.MinValue;
 
+        /// <summary>
+        /// Минимальная координата Y компонента.
+        /// </summary>
         public int MinY { get; private set; } = int.MaxValue;
 
+        /// <summary>
+        /// Максимальная координата Y компонента.
+        /// </summary>
         public int MaxY { get; private set; } = int.MinValue;
 
+        /// <summary>
+        /// Главный угол компонента, вычисленный по ковариации пикселей.
+        /// </summary>
         public double PrincipalAngleDegrees { get; private set; }
 
+        /// <summary>
+        /// Ширина ограничивающего прямоугольника компонента.
+        /// </summary>
         public int BoundingWidth => MaxX - MinX + 1;
 
+        /// <summary>
+        /// Высота ограничивающего прямоугольника компонента.
+        /// </summary>
         public int BoundingHeight => MaxY - MinY + 1;
 
         private double SumX { get; set; }
@@ -915,8 +1093,14 @@ public static class ImageProcessingService
 
         private double SumXY { get; set; }
 
+        /// <summary>
+        /// Показывает, касается ли компонент края изображения; такие компоненты часто являются рамками или фоном.
+        /// </summary>
         public bool TouchesBorder { get; private set; }
 
+        /// <summary>
+        /// Добавляет пиксель в статистику компонента.
+        /// </summary>
         public void Add(int x, int y, int width, int height)
         {
             Area++;
@@ -932,6 +1116,9 @@ public static class ImageProcessingService
             TouchesBorder |= x <= 1 || y <= 1 || x >= width - 2 || y >= height - 2;
         }
 
+        /// <summary>
+        /// Завершает расчет статистики и вычисляет главный угол компонента.
+        /// </summary>
         public void Finish()
         {
             if (Area <= 1)
@@ -948,6 +1135,9 @@ public static class ImageProcessingService
             PrincipalAngleDegrees = 0.5 * Math.Atan2(2 * covXY, covXX - covYY) * 180.0 / Math.PI;
         }
 
+        /// <summary>
+        /// Возвращает эвристическую оценку компонента для выбора главной области изображения.
+        /// </summary>
         public double Score(int width, int height)
         {
             var boundingArea = Math.Max(1, (MaxX - MinX + 1) * (MaxY - MinY + 1));
@@ -968,17 +1158,32 @@ public static class ImageProcessingService
         }
     }
 
+    /// <summary>
+    /// Границы текущей группы компонентов, которые считаются одним найденным объектом.
+    /// </summary>
     private readonly record struct RegionBounds(int MinX, int MinY, int MaxX, int MaxY)
     {
+        /// <summary>
+        /// Ширина региона.
+        /// </summary>
         public int Width => MaxX - MinX + 1;
 
+        /// <summary>
+        /// Высота региона.
+        /// </summary>
         public int Height => MaxY - MinY + 1;
 
+        /// <summary>
+        /// Создает границы региона из одного компонента.
+        /// </summary>
         public static RegionBounds From(ComponentStats stats)
         {
             return new RegionBounds(stats.MinX, stats.MinY, stats.MaxX, stats.MaxY);
         }
 
+        /// <summary>
+        /// Возвращает новые границы, расширенные еще одним компонентом.
+        /// </summary>
         public RegionBounds Include(ComponentStats stats)
         {
             return new RegionBounds(
@@ -989,10 +1194,19 @@ public static class ImageProcessingService
         }
     }
 
+    /// <summary>
+    /// Описание холста после преобразований и матрицы, которая переводит исходные координаты в координаты холста.
+    /// </summary>
     private readonly record struct TransformLayout(double Width, double Height, AffineMap ImageMap, double RotationDegrees);
 
+    /// <summary>
+    /// Компактное представление аффинного преобразования: поворот, перенос и масштабирование.
+    /// </summary>
     private readonly record struct AffineMap(double M11, double M12, double M21, double M22, double OffsetX, double OffsetY)
     {
+        /// <summary>
+        /// Создает преобразование поворота вокруг заданного центра.
+        /// </summary>
         public static AffineMap Rotation(double angleDegrees, double centerX, double centerY)
         {
             var angle = angleDegrees * Math.PI / 180.0;
@@ -1007,6 +1221,9 @@ public static class ImageProcessingService
                 centerY - sin * centerX - cos * centerY);
         }
 
+        /// <summary>
+        /// Применяет преобразование к точке.
+        /// </summary>
         public Point Transform(Point point)
         {
             return new Point(
@@ -1014,6 +1231,9 @@ public static class ImageProcessingService
                 point.X * M12 + point.Y * M22 + OffsetY);
         }
 
+        /// <summary>
+        /// Добавляет перенос к текущему преобразованию.
+        /// </summary>
         public AffineMap Translate(double x, double y)
         {
             return this with
@@ -1023,6 +1243,9 @@ public static class ImageProcessingService
             };
         }
 
+        /// <summary>
+        /// Масштабирует все коэффициенты преобразования.
+        /// </summary>
         public AffineMap Scale(double scale)
         {
             return new AffineMap(
@@ -1034,6 +1257,9 @@ public static class ImageProcessingService
                 OffsetY * scale);
         }
 
+        /// <summary>
+        /// Преобразует собственный формат матрицы в WPF Matrix.
+        /// </summary>
         public Matrix ToMatrix()
         {
             return new Matrix(M11, M12, M21, M22, OffsetX, OffsetY);
@@ -1041,13 +1267,22 @@ public static class ImageProcessingService
     }
 }
 
+/// <summary>
+/// Небольшие расширения геометрии для масштабирования точек и прямоугольников.
+/// </summary>
 internal static class GeometryExtensions
 {
+    /// <summary>
+    /// Умножает координаты точки на коэффициент масштаба.
+    /// </summary>
     public static Point Scale(this Point point, double scale)
     {
         return new Point(point.X * scale, point.Y * scale);
     }
 
+    /// <summary>
+    /// Умножает положение и размер прямоугольника на коэффициент масштаба.
+    /// </summary>
     public static Rect Scale(this Rect rect, double scale)
     {
         return new Rect(rect.X * scale, rect.Y * scale, rect.Width * scale, rect.Height * scale);

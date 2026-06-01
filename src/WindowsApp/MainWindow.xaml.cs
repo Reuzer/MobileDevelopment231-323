@@ -7,20 +7,49 @@ using Microsoft.Win32;
 
 namespace WindowsApp;
 
+/// <summary>
+/// Главное окно приложения: связывает элементы интерфейса с загрузкой, анализом,
+/// поворотом, предпросмотром и сохранением изображения.
+/// </summary>
 public partial class MainWindow : Window
 {
+    /// <summary>
+    /// Исходное изображение, загруженное пользователем.
+    /// </summary>
     private BitmapSource? _sourceImage;
+
+    /// <summary>
+    /// Последний результат поиска контура для текущего изображения.
+    /// </summary>
     private ImageAnalysisResult? _analysis;
+
+    /// <summary>
+    /// Путь к текущему файлу, нужен для заголовка окна и имени файла при сохранении.
+    /// </summary>
     private string? _currentPath;
+
+    /// <summary>
+    /// Защищает связанные Slider/TextBox от рекурсивного обновления друг друга.
+    /// </summary>
     private bool _syncingControls;
+
+    /// <summary>
+    /// Текущий пользовательский угол поворота в градусах.
+    /// </summary>
     private double _rotationDegrees;
 
+    /// <summary>
+    /// Инициализирует окно и выставляет начальное состояние кнопок.
+    /// </summary>
     public MainWindow()
     {
         InitializeComponent();
         RefreshCommandState();
     }
 
+    /// <summary>
+    /// Загружает изображение из файла, сбрасывает предыдущий анализ и сразу запускает новый поиск контура.
+    /// </summary>
     public async Task LoadImageAsync(string path)
     {
         if (!File.Exists(path))
@@ -50,6 +79,9 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Выполняет анализ текущего изображения в фоновом потоке, чтобы не блокировать интерфейс.
+    /// </summary>
     private async Task AnalyzeCurrentImageAsync()
     {
         if (_sourceImage is null)
@@ -91,6 +123,9 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Перестраивает картинку предпросмотра с учетом текущего угла, обрезки и выбранных подсветок.
+    /// </summary>
     private void RefreshPreview()
     {
         if (_sourceImage is null)
@@ -110,6 +145,9 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Собирает настройки отрисовки из текущего состояния элементов управления.
+    /// </summary>
     private ImageRenderSettings CreateRenderSettings()
     {
         return new ImageRenderSettings
@@ -126,6 +164,9 @@ public partial class MainWindow : Window
         };
     }
 
+    /// <summary>
+    /// Обрабатывает кнопку открытия файла и передает выбранный путь в загрузчик изображения.
+    /// </summary>
     private async void OpenButton_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog
@@ -140,11 +181,17 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Повторно запускает поиск контура для уже загруженного изображения.
+    /// </summary>
     private async void AnalyzeButton_Click(object sender, RoutedEventArgs e)
     {
         await AnalyzeCurrentImageAsync();
     }
 
+    /// <summary>
+    /// Корректирует ручной поворот на угол найденной грани, чтобы выровнять изображение.
+    /// </summary>
     private void AlignButton_Click(object sender, RoutedEventArgs e)
     {
         if (_analysis?.Found != true)
@@ -157,16 +204,25 @@ public partial class MainWindow : Window
         SetStatus($"Поворот скорректирован на {-_analysis.EdgeAngleDegrees:0.###}°.");
     }
 
+    /// <summary>
+    /// Поворачивает изображение на 90 градусов против часовой стрелки.
+    /// </summary>
     private void RotateLeftButton_Click(object sender, RoutedEventArgs e)
     {
         SetRotation(NormalizeRotation(_rotationDegrees - 90));
     }
 
+    /// <summary>
+    /// Поворачивает изображение на 90 градусов по часовой стрелке.
+    /// </summary>
     private void RotateRightButton_Click(object sender, RoutedEventArgs e)
     {
         SetRotation(NormalizeRotation(_rotationDegrees + 90));
     }
 
+    /// <summary>
+    /// Применяет новый угол поворота при перемещении ползунка.
+    /// </summary>
     private void RotationSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (!IsLoaded || _syncingControls)
@@ -177,11 +233,17 @@ public partial class MainWindow : Window
         SetRotation(e.NewValue, updateSlider: false);
     }
 
+    /// <summary>
+    /// Применяет угол из текстового поля после потери фокуса.
+    /// </summary>
     private void RotationTextBox_LostFocus(object sender, RoutedEventArgs e)
     {
         ApplyRotationTextBox();
     }
 
+    /// <summary>
+    /// Применяет угол из текстового поля по клавише Enter.
+    /// </summary>
     private void RotationTextBox_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter)
@@ -191,6 +253,9 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Синхронизирует текстовое поле отступа обрезки с ползунком и обновляет предпросмотр.
+    /// </summary>
     private void CropMarginSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (!IsLoaded || _syncingControls)
@@ -204,11 +269,17 @@ public partial class MainWindow : Window
         RefreshPreview();
     }
 
+    /// <summary>
+    /// Применяет отступ обрезки из текстового поля после потери фокуса.
+    /// </summary>
     private void CropMarginTextBox_LostFocus(object sender, RoutedEventArgs e)
     {
         ApplyCropMarginTextBox();
     }
 
+    /// <summary>
+    /// Применяет отступ обрезки из текстового поля по клавише Enter.
+    /// </summary>
     private void CropMarginTextBox_KeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter)
@@ -218,6 +289,9 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Сообщает пользователю, что после изменения чувствительности нужно повторить анализ.
+    /// </summary>
     private void SensitivitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (!IsLoaded || _sourceImage is null)
@@ -228,6 +302,9 @@ public partial class MainWindow : Window
         SetStatus("Чувствительность изменена. Нажмите Ctrl+R или кнопку поиска контура для повторного анализа.");
     }
 
+    /// <summary>
+    /// Обновляет предпросмотр при переключении подсветки, центровки или автообрезки.
+    /// </summary>
     private void OverlayOptionChanged(object sender, RoutedEventArgs e)
     {
         if (!IsLoaded)
@@ -238,6 +315,9 @@ public partial class MainWindow : Window
         RefreshPreview();
     }
 
+    /// <summary>
+    /// Формирует итоговое изображение по текущим настройкам и сохраняет его в выбранный файл.
+    /// </summary>
     private void SaveButton_Click(object sender, RoutedEventArgs e)
     {
         if (_sourceImage is null)
@@ -277,6 +357,9 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Обрабатывает горячие клавиши: Ctrl+O для открытия, Ctrl+S для сохранения, Ctrl+R для анализа.
+    /// </summary>
     private void Window_KeyDown(object sender, KeyEventArgs e)
     {
         if ((Keyboard.Modifiers & ModifierKeys.Control) != ModifierKeys.Control)
@@ -301,6 +384,9 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Проверяет и применяет число из поля ручного поворота.
+    /// </summary>
     private void ApplyRotationTextBox()
     {
         if (double.TryParse(
@@ -317,6 +403,9 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Проверяет и применяет число из поля отступа автообрезки.
+    /// </summary>
     private void ApplyCropMarginTextBox()
     {
         if (int.TryParse(CropMarginTextBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
@@ -334,11 +423,17 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Возвращает текущий отступ автообрезки в пикселях.
+    /// </summary>
     private int GetCropMargin()
     {
         return (int)Math.Round(CropMarginSlider.Value);
     }
 
+    /// <summary>
+    /// Устанавливает угол поворота, синхронизирует элементы управления и обновляет предпросмотр.
+    /// </summary>
     private void SetRotation(double value, bool updateSlider = true)
     {
         _rotationDegrees = value;
@@ -352,6 +447,9 @@ public partial class MainWindow : Window
         RefreshPreview();
     }
 
+    /// <summary>
+    /// Включает и отключает кнопки в зависимости от того, есть ли изображение и найденный контур.
+    /// </summary>
     private void RefreshCommandState()
     {
         var hasImage = _sourceImage is not null;
@@ -361,6 +459,9 @@ public partial class MainWindow : Window
         AlignButton.IsEnabled = hasContour;
     }
 
+    /// <summary>
+    /// Переводит интерфейс в режим занятости во время анализа или сохранения.
+    /// </summary>
     private void SetBusy(bool isBusy, string? status = null)
     {
         OpenButton.IsEnabled = !isBusy;
@@ -373,11 +474,17 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Выводит сообщение в нижнюю строку состояния.
+    /// </summary>
     private void SetStatus(string status)
     {
         StatusTextBlock.Text = status;
     }
 
+    /// <summary>
+    /// Приводит угол к диапазону от -180 до 180 градусов.
+    /// </summary>
     private static double NormalizeRotation(double angle)
     {
         while (angle <= -180)
