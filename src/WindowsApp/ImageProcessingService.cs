@@ -426,8 +426,21 @@ public static class ImageProcessingService
         }
 
         var minArea = Math.Max(30, width * height * 0.0004);
-        var best = components
+        var minSeedFallbackArea = Math.Max(8, width * height * 0.00002);
+        var seedCandidates = components
             .Where(component => component.Area >= minArea)
+            .ToArray();
+        if (seedCandidates.Length == 0)
+        {
+            seedCandidates = components
+                .Where(component => component.Area >= minSeedFallbackArea)
+                .ToArray();
+        }
+
+        var best = seedCandidates
+            .Where(component => !component.TouchesBorder)
+            .OrderByDescending(component => component.Score(width, height))
+            .FirstOrDefault() ?? seedCandidates
             .OrderByDescending(component => component.Score(width, height))
             .FirstOrDefault();
 
@@ -436,8 +449,103 @@ public static class ImageProcessingService
             return null;
         }
 
-        best.Finish();
-        return new ComponentResult(labels, best);
+        var selectedLabels = SelectMainRegion(best, components, width, height);
+        var regionLabels = new int[labels.Length];
+        var regionStats = new ComponentStats(1);
+
+        for (var index = 0; index < labels.Length; index++)
+        {
+            if (!selectedLabels.Contains(labels[index]))
+            {
+                continue;
+            }
+
+            regionLabels[index] = regionStats.Label;
+            regionStats.Add(index % width, index / width, width, height);
+        }
+
+        regionStats.Finish();
+        return new ComponentResult(regionLabels, regionStats);
+    }
+
+    private static HashSet<int> SelectMainRegion(ComponentStats seed, IReadOnlyList<ComponentStats> components, int width, int height)
+    {
+        var selected = new HashSet<int> { seed.Label };
+        var bounds = RegionBounds.From(seed);
+        var minMemberArea = Math.Max(8, width * height * 0.00002);
+        var candidates = components
+            .Where(component =>
+                !component.TouchesBorder &&
+                component.Area >= minMemberArea &&
+                component.Area <= width * height * 0.92)
+            .ToArray();
+        var changed = true;
+
+        while (changed)
+        {
+            changed = false;
+
+            foreach (var component in candidates)
+            {
+                if (selected.Contains(component.Label) || !ShouldJoinRegion(bounds, component, seed, width, height))
+                {
+                    continue;
+                }
+
+                selected.Add(component.Label);
+                bounds = bounds.Include(component);
+                changed = true;
+            }
+        }
+
+        return selected;
+    }
+
+    private static bool ShouldJoinRegion(RegionBounds bounds, ComponentStats component, ComponentStats seed, int width, int height)
+    {
+        var horizontalGap = AxisGap(bounds.MinX, bounds.MaxX, component.MinX, component.MaxX);
+        var verticalGap = AxisGap(bounds.MinY, bounds.MaxY, component.MinY, component.MaxY);
+        var textHeight = Math.Max(seed.BoundingHeight, component.BoundingHeight);
+        var verticalLimit = Math.Max(8, Math.Min(height * 0.06, textHeight * 2.4));
+        var horizontalLimit = Math.Max(12, Math.Min(width * 0.08, textHeight * 4.0));
+        var horizontalOverlap = AxisOverlap(bounds.MinX, bounds.MaxX, component.MinX, component.MaxX);
+        var verticalOverlap = AxisOverlap(bounds.MinY, bounds.MaxY, component.MinY, component.MaxY);
+        var minComponentWidth = Math.Max(1, Math.Min(bounds.Width, component.BoundingWidth));
+        var minComponentHeight = Math.Max(1, Math.Min(bounds.Height, component.BoundingHeight));
+        var overlapsTextColumn = horizontalOverlap >= minComponentWidth * 0.15;
+        var overlapsTextRow = verticalOverlap >= minComponentHeight * 0.15;
+
+        if (verticalGap <= verticalLimit && overlapsTextColumn)
+        {
+            return true;
+        }
+
+        if (horizontalGap <= horizontalLimit && overlapsTextRow)
+        {
+            return true;
+        }
+
+        return verticalGap <= verticalLimit && horizontalGap <= horizontalLimit;
+    }
+
+    private static int AxisGap(int firstMin, int firstMax, int secondMin, int secondMax)
+    {
+        if (firstMax < secondMin)
+        {
+            return secondMin - firstMax;
+        }
+
+        if (secondMax < firstMin)
+        {
+            return firstMin - secondMax;
+        }
+
+        return 0;
+    }
+
+    private static int AxisOverlap(int firstMin, int firstMax, int secondMin, int secondMax)
+    {
+        return Math.Max(0, Math.Min(firstMax, secondMax) - Math.Max(firstMin, secondMin) + 1);
     }
 
     private static IReadOnlyList<Point> BuildBoundaryPoints(int[] labels, int label, int width, int height, double analysisScale)
@@ -793,6 +901,10 @@ public static class ImageProcessingService
 
         public double PrincipalAngleDegrees { get; private set; }
 
+        public int BoundingWidth => MaxX - MinX + 1;
+
+        public int BoundingHeight => MaxY - MinY + 1;
+
         private double SumX { get; set; }
 
         private double SumY { get; set; }
@@ -803,7 +915,7 @@ public static class ImageProcessingService
 
         private double SumXY { get; set; }
 
-        private bool TouchesBorder { get; set; }
+        public bool TouchesBorder { get; private set; }
 
         public void Add(int x, int y, int width, int height)
         {
@@ -853,6 +965,27 @@ public static class ImageProcessingService
             }
 
             return score;
+        }
+    }
+
+    private readonly record struct RegionBounds(int MinX, int MinY, int MaxX, int MaxY)
+    {
+        public int Width => MaxX - MinX + 1;
+
+        public int Height => MaxY - MinY + 1;
+
+        public static RegionBounds From(ComponentStats stats)
+        {
+            return new RegionBounds(stats.MinX, stats.MinY, stats.MaxX, stats.MaxY);
+        }
+
+        public RegionBounds Include(ComponentStats stats)
+        {
+            return new RegionBounds(
+                Math.Min(MinX, stats.MinX),
+                Math.Min(MinY, stats.MinY),
+                Math.Max(MaxX, stats.MaxX),
+                Math.Max(MaxY, stats.MaxY));
         }
     }
 
